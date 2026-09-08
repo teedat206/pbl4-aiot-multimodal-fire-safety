@@ -80,3 +80,6 @@
 *.tmp
 .DS_Store
 Thumbs.db
+~$*.docx
+~$*.xlsx
+~$*.pptx
