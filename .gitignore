@@ -83,3 +83,6 @@ Thumbs.db
 ~$*.docx
 ~$*.xlsx
 ~$*.pptx
+
+# Local project documents — do not track or publish to GitHub
+/tailieu/
