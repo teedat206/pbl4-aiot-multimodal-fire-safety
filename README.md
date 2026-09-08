@@ -12,10 +12,10 @@ Hệ thống giám sát an toàn không gian kín và dự báo sớm hỏa ho�
 
 Dự án được chia thành 4 phân hệ chính, sử dụng kiến trúc phân tán:
 
- Edge_Firmware/          # C/C++ (FreeRTOS) chạy trên ESP32-S3 N16R8 CAM
- Backend_AI_Server/      # C# ASP.NET Core API & SignalR Hub, chứa mô hình AI
- Mobile_Monitor_App/     # Flutter/Dart (Android App) giám sát và nhận cảnh báo
- AI_Training_Workspace/  # Python (Jupyter Notebook) dùng để train Random Forest/YOLOv8
+ - Edge_Firmware/          # C/C++ (FreeRTOS) chạy trên ESP32-S3 N16R8 CAM
+ - Backend_AI_Server/      # C# ASP.NET Core API & SignalR Hub, chứa mô hình AI
+ - Mobile_Monitor_App/     # Flutter/Dart (Android App) giám sát và nhận cảnh báo
+ - AI_Training_Workspace/  # Python (Jupyter Notebook) dùng để train Random Forest/YOLOv8
 
 ## 🛠️ Công nghệ sử dụng (Tech Stack)
 
