@@ -12,7 +12,7 @@ Xây dựng luồng nhận dữ liệu cảm biến đa phương thức (Khói, 
 
 ---
 
-## Kế hoạch 5 bước triển khai App chuyên sâu
+## Kế hoạch 6 bước triển khai App chuyên sâu
 
 ### 1. Chốt kiến trúc State Management và thư viện lõi
 
@@ -56,3 +56,10 @@ Xây dựng luồng nhận dữ liệu cảm biến đa phương thức (Khói, 
 - **Kiểm thử hiệu năng (Profiling):** Chạy App ở chế độ Profile mode (`flutter run --profile`). Mở Flutter DevTools kiểm tra tab Memory và Performance để đảm bảo khung hình luôn duy trì > 50 FPS.
 - **Đóng gói bảo mật:** Build file cài đặt với lệnh mã hóa mã nguồn: `flutter build apk --release --obfuscate --split-debug-info=./debug_info`.
 - **Verify:** Sinh ra file `app-release.apk` cài đặt mượt mà trên thiết bị Android thật, tài liệu `README.md` cập nhật đủ các bước setup biến môi trường để sinh viên khác có thể clone về chạy thử.
+
+### 6. Quy trình quản lý mã nguồn Git & Tích hợp chéo (Monorepo Workflow)
+
+- **Rẽ nhánh và Code độc lập:** Bắt đầu công việc bằng cách cập nhật code mới nhất (`git pull origin main`), sau đó tạo nhánh riêng biệt cho tính năng Mobile (VD: `git checkout -b mobile/setup-ui`). Mọi thao tác viết code chỉ diễn ra bên trong thư mục `Mobile_Monitor_App`.
+- **Sử dụng Dữ liệu giả (Mock Data):** Để đảm bảo tính độc lập, trong lúc chờ Backend xây dựng xong SignalR Hub, Mobile Developer sử dụng cấu trúc JSON giả lập (đã chốt ở Data Contracts) để nhồi vào thuật toán biểu đồ FIFO, đảm bảo tiến độ UI không bị đình trệ.
+- **Commit và Push an toàn:** Khai báo thông điệp Git theo chuẩn Monorepo, ví dụ: `feat(mobile): hoàn thiện vẽ biểu đồ fl_chart 60fps`. Sau đó push nhánh lên GitHub và tạo Pull Request (PR) chờ review, tuyệt đối không push thẳng vào `main`.
+- **Tích hợp thực tế (Cross-Integration):** Khi bạn Backend thông báo máy chủ đã sẵn sàng chạy trên mạng nội bộ (LAN), Mobile Developer tiến hành đổi Endpoint trong file config từ `10.0.2.2` (chạy máy ảo) sang địa chỉ IP tĩnh của Backend (VD: `192.168.1.5`). Build App lên thiết bị thật, đặt cạnh mạch phần cứng ESP32 để nghiệm thu độ trễ thực tế.
