@@ -1,0 +1,52 @@
+[
+  {
+    "_scenario": "Class 0 – Bình thường",
+    "_description": "Môi trường phòng sinh hoạt thông thường, không có dấu hiệu bất thường",
+    "class": 0,
+    "temp": 27.5,
+    "hum": 58.0,
+    "smoke": 5,
+    "gas": 45,
+    "co": 4
+  },
+  {
+    "_scenario": "Class 1 – Cảnh báo sớm",
+    "_description": "Nhiệt độ tăng nhẹ, nồng độ khói và gas bắt đầu vượt mức nền. Có thể do nấu ăn hoặc thiết bị tỏa nhiệt",
+    "class": 1,
+    "temp": 38.0,
+    "hum": 44.0,
+    "smoke": 24,
+    "gas": 280,
+    "co": 22
+  },
+  {
+    "_scenario": "Class 2 – Rò rỉ Gas",
+    "_description": "Gas LPG rò rỉ mạnh nhưng chưa bén lửa: nhiệt độ và khói vẫn ở mức thấp, gas tăng vọt",
+    "class": 2,
+    "temp": 28.0,
+    "hum": 60.0,
+    "smoke": 7,
+    "gas": 1650,
+    "co": 18
+  },
+  {
+    "_scenario": "Class 3 – Cháy âm ỉ",
+    "_description": "Đám cháy smoldering chưa bùng phát: nhiệt độ cao, khói dày, CO tích tụ. Điển hình cháy vật liệu mềm",
+    "class": 3,
+    "temp": 53.0,
+    "hum": 32.0,
+    "smoke": 58,
+    "gas": 350,
+    "co": 135
+  },
+  {
+    "_scenario": "Class 4 – Hỏa hoạn bùng phát",
+    "_description": "Đám cháy lớn bùng phát hoàn toàn: nhiệt độ cực cao, khói đặc, CO nguy hiểm chết người",
+    "class": 4,
+    "temp": 78.0,
+    "hum": 18.0,
+    "smoke": 92,
+    "gas": 820,
+    "co": 295
+  }
+]

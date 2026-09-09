@@ -1,0 +1,2 @@
+# File này đánh dấu thư mục chứa YOLO weight files
+# Sau khi fine-tune, đặt best.pt vào đây

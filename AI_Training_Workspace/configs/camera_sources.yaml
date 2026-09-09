@@ -1,0 +1,44 @@
+# configs/camera_sources.yaml
+# =============================================================================
+# PBL4 - AIoT Fire Safety | Cấu hình nguồn Camera
+#
+# File này tập trung toàn bộ cấu hình nguồn video.
+# Thay đổi giá trị 'active_source' để chuyển đổi môi trường test.
+# =============================================================================
+
+# Nguồn đang được kích hoạt.
+# Các giá trị hợp lệ: "local_video" | "webcam" | "esp32_cam"
+active_source: "local_video"
+
+sources:
+  # ── Nguồn 1: File video cục bộ ────────────────────────────────────────────
+  local_video:
+    path: "data/raw_videos/test_chay.mp4"
+    description: "Video mô phỏng đám cháy để test offline"
+    loop: true   # Tự loop khi hết video
+
+  # ── Nguồn 2: Webcam / USB Camera ──────────────────────────────────────────
+  webcam:
+    device_index: 0   # 0 = camera mặc định; 1, 2... = camera thêm vào
+    description: "Webcam USB kết nối trực tiếp với máy tính"
+
+  # ── Nguồn 3: ESP32-CAM HTTP MJPEG Stream ──────────────────────────────────
+  esp32_cam:
+    # Thay IP bên dưới bằng IP thực của module ESP32-CAM trên mạng LAN
+    # Cách tìm IP: mở Serial Monitor khi ESP32 khởi động, nó sẽ in ra IP
+    ip: "192.168.1.105"
+    port: 80
+    endpoint: "/stream"
+    # URL đầy đủ sẽ là: http://192.168.1.105/stream
+    # Một số firmware dùng port 81: http://192.168.1.105:81/stream
+    description: "ESP32-CAM MJPEG stream qua WiFi LAN"
+
+# =============================================================================
+# Cấu hình inference
+# =============================================================================
+inference:
+  model_path: "yolov8n.pt"        # Thay bằng "models/weights/best.pt" sau khi fine-tune
+  confidence_threshold: 0.40
+  inference_size: 640
+  max_fps: 30
+  show_window: true
