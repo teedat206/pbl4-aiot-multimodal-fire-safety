@@ -29,11 +29,11 @@ from ultralytics import YOLO
 # Chỉ cần bỏ comment (xóa dấu #) ở dòng tương ứng và comment lại dòng khác.
 #
 # ── Lựa chọn 1: File video cục bộ (ĐANG DÙNG - MẶC ĐỊNH) ──────────────────
-VIDEO_SOURCE = str(Path(__file__).parent.parent / "data" / "raw_videos" / "test_chay.mp4")
+# VIDEO_SOURCE = str(Path(__file__).parent.parent / "data" / "raw_videos" / "test_chay.mp4")
 #
 # ── Lựa chọn 2: Webcam / USB Camera ──────────────────────────────────────────
 #   Dùng số nguyên: 0 = camera mặc định, 1 = camera thứ 2, v.v.
-#   VIDEO_SOURCE = 0
+VIDEO_SOURCE = 0
 #
 # ── Lựa chọn 3: HTTP Stream từ ESP32-CAM ─────────────────────────────────────
 #   Thay <ESP32_IP> bằng địa chỉ IP thực của module ESP32-CAM trên LAN.

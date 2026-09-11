@@ -1,28 +1,3 @@
-"""
-=============================================================================
-PBL4 - AIoT Multimodal Fire Safety System
-Script: baseline_heuristic.py
-Task:   [AI-01.2] – Thiết lập Baseline Heuristic cho Cảm biến
-
-Mô tả:
-    Định nghĩa hàm evaluate_risk() sử dụng logic ngưỡng (threshold-based)
-    để phân loại mức độ nguy hiểm môi trường thành 5 class:
-
-        Class 0 – Bình thường
-        Class 1 – Cảnh báo sớm
-        Class 2 – Rò rỉ Gas (chưa có lửa)
-        Class 3 – Cháy âm ỉ (Smoldering)
-        Class 4 – Hỏa hoạn bùng phát
-
-    Đây là baseline để:
-      1. Xác nhận Data Contract hoạt động đúng.
-      2. Tạo nhãn (label) tự động cho dataset huấn luyện Random Forest.
-      3. Fallback rule-based khi model AI chưa sẵn sàng.
-
-Cách chạy:
-    python scripts/baseline_heuristic.py
-=============================================================================
-"""
 
 import json
 import sys
@@ -31,19 +6,6 @@ import sys
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 from pathlib import Path
-
-
-# =============================================================================
-# NGƯỠNG CẢM BIẾN (THRESHOLDS)
-# Điều chỉnh các giá trị này dựa trên đặc tính phần cứng thực tế.
-# Đơn vị:
-#   temp  → °C
-#   hum   → % (độ ẩm tương đối)
-#   smoke → đơn vị tương đối 0–100 (chuẩn hóa từ ADC MQ-2 hoặc % density)
-#   gas   → ppm (LPG/Butane, từ MQ-6 hoặc MQ-5)
-#   co    → ppm (từ MQ-7 hoặc MQ-9)
-# =============================================================================
-
 # ── Nhiệt độ ─────────────────────────────────────────────────────────────────
 TEMP_WARN     = 35.0    # °C – bắt đầu theo dõi
 TEMP_HIGH     = 50.0    # °C – nguy cơ cháy âm ỉ
