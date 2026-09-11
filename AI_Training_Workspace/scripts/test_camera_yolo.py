@@ -10,7 +10,7 @@ Mô tả:
     real-time trên luồng video được cấu hình sẵn. Hỗ trợ 3 nguồn đầu vào:
       1. File video cục bộ (test_chay.mp4)   ← MẶC ĐỊNH
       2. Webcam/USB Camera
-      3. HTTP MJPEG Stream từ ESP32-CAM
+      3. HTTP MJPEG Stream từ ESP32-S3
 
 Cách chạy:
     python scripts/test_camera_yolo.py
@@ -35,9 +35,9 @@ from ultralytics import YOLO
 #   Dùng số nguyên: 0 = camera mặc định, 1 = camera thứ 2, v.v.
 VIDEO_SOURCE = 0
 #
-# ── Lựa chọn 3: HTTP Stream từ ESP32-CAM ─────────────────────────────────────
-#   Thay <ESP32_IP> bằng địa chỉ IP thực của module ESP32-CAM trên LAN.
-#   Ví dụ: nếu ESP32-CAM hiển thị IP là 192.168.1.105 thì:
+# ── Lựa chọn 3: HTTP Stream từ ESP32-S3 ──────────────────────────────────────
+#   Thay <ESP32_IP> bằng địa chỉ IP thực của module ESP32-S3 trên LAN.
+#   Ví dụ: nếu ESP32-S3 hiển thị IP là 192.168.1.105 thì:
 #   VIDEO_SOURCE = "http://192.168.1.105/stream"
 #   Hoặc nếu dùng endpoint MJPEG khác:
 #   VIDEO_SOURCE = "http://192.168.1.105:81/stream"
@@ -100,7 +100,7 @@ def get_source_label(source) -> str:
         return f"Webcam #{source}"
     if isinstance(source, str):
         if source.startswith("http"):
-            return f"ESP32-CAM Stream"
+            return f"ESP32-S3 Stream"
         return Path(source).name
     return "Unknown Source"
 
@@ -134,7 +134,7 @@ def main():
         print(f"\n✗ KHÔNG THỂ MỞ NGUỒN VIDEO: {VIDEO_SOURCE}")
         print("  Gợi ý kiểm tra:")
         if isinstance(VIDEO_SOURCE, str) and VIDEO_SOURCE.startswith("http"):
-            print("  • Kiểm tra ESP32-CAM đã được cấp nguồn và kết nối LAN chưa.")
+            print("  • Kiểm tra ESP32-S3 đã được cấp nguồn và kết nối LAN chưa.")
             print("  • Thử mở URL trực tiếp trên trình duyệt để xác nhận stream.")
         elif isinstance(VIDEO_SOURCE, int):
             print("  • Kiểm tra Webcam đã được cắm vào và driver đã cài chưa.")
