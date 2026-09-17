@@ -1,0 +1,11 @@
+# Đường dẫn tuyệt đối đến thư mục chứa dữ liệu
+path: D:/PBL4/AI_Training_Workspace/data/datasets/fire_smoke
+
+# Đường dẫn tương đối trỏ vào thư mục ảnh
+train: train/images
+val: valid/images
+test: test/images
+
+# Số lượng và tên nhãn (Không thay đổi)
+nc: 2
+names: ['fire', 'smoke']

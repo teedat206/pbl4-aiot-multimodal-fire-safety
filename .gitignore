@@ -86,3 +86,22 @@ Thumbs.db
 
 # Local project documents — do not track or publish to GitHub
 /tailieu/
+
+# AI / ML - Chặn triệt để thư mục rác và file weights không cần thiết
+**/runs/
+best.pt
+yolov8n.pt
+yolov8s.pt
+yolov8m.pt
+yolov8l.pt
+yolov8x.pt
+
+# Tài liệu nội bộ - không public lên GitHub
+docs/
+tai_lieu/
+
+# Dataset images (raw data - too large for git, use external storage / git-lfs)
+AI_Training_Workspace/data/custom_dataset/
+AI_Training_Workspace/data/datasets/fire_smoke/train/
+AI_Training_Workspace/data/datasets/fire_smoke/valid/
+AI_Training_Workspace/data/datasets/fire_smoke/test/
