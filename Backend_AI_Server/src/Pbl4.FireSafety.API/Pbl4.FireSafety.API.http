@@ -1,0 +1,6 @@
+@Pbl4.FireSafety.API_HostAddress = http://localhost:5122
+
+GET {{Pbl4.FireSafety.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

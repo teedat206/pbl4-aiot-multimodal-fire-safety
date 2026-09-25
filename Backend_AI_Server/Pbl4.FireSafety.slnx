@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Pbl4.FireSafety.API/Pbl4.FireSafety.API.csproj" />
+    <Project Path="src/Pbl4.FireSafety.Application/Pbl4.FireSafety.Application.csproj" />
+    <Project Path="src/Pbl4.FireSafety.Domain/Pbl4.FireSafety.Domain.csproj" />
+    <Project Path="src/Pbl4.FireSafety.Infrastructure/Pbl4.FireSafety.Infrastructure.csproj" />
+  </Folder>
+</Solution>
