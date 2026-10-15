@@ -5,4 +5,7 @@
     <Project Path="src/Pbl4.FireSafety.Domain/Pbl4.FireSafety.Domain.csproj" />
     <Project Path="src/Pbl4.FireSafety.Infrastructure/Pbl4.FireSafety.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Pbl4.FireSafety.Application.Tests/Pbl4.FireSafety.Application.Tests.csproj" />
+  </Folder>
 </Solution>

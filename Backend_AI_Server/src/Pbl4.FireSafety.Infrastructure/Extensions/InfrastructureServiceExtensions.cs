@@ -1,7 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Pbl4.FireSafety.Application.Contracts.Services;
+using Pbl4.FireSafety.Application.Features.Telemetry;
 using Pbl4.FireSafety.Application.Options;
+using Pbl4.FireSafety.Infrastructure.Mqtt;
 using Pbl4.FireSafety.Infrastructure.Persistence;
 
 namespace Pbl4.FireSafety.Infrastructure.Extensions;
@@ -39,7 +42,8 @@ public static class InfrastructureServiceExtensions
         });
 
         // --- MQTT Ingestion BackgroundService — đăng ký ở BE-03 ---
-        // services.AddHostedService<MqttIngestionService>();
+        services.AddSingleton<ITelemetryValidator, TelemetryValidator>();
+        services.AddHostedService<MqttIngestionService>();
 
         // --- AI Services (ONNX) — đăng ký ở BE-04, BE-05 ---
         // services.AddSingleton<IRandomForestService, RandomForestOnnxService>();
