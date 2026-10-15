@@ -1,6 +1,8 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Pbl4.FireSafety.Application.Options;
+using Pbl4.FireSafety.Infrastructure.Persistence;
 
 namespace Pbl4.FireSafety.Infrastructure.Extensions;
 
@@ -28,7 +30,13 @@ public static class InfrastructureServiceExtensions
             configuration.GetSection(SignalROptions.SectionName));
 
         // --- Persistence (EF Core DbContext) — đăng ký ở BE-02 ---
-        // services.AddDbContext<AppDbContext>(...);
+        var connectionString = configuration.GetConnectionString("Pbl4Database")
+            ?? throw new InvalidOperationException("Connection string 'Pbl4Database' not found in configuration.");
+
+        services.AddDbContext<AppDbContext>(options =>
+        {
+            options.UseMySQL(connectionString);
+        });
 
         // --- MQTT Ingestion BackgroundService — đăng ký ở BE-03 ---
         // services.AddHostedService<MqttIngestionService>();
