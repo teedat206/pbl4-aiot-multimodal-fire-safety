@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Pbl4.FireSafety.Application\Pbl4.FireSafety.Application.csproj" />
+    <ProjectReference Include="..\..\src\Pbl4.FireSafety.Infrastructure\Pbl4.FireSafety.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

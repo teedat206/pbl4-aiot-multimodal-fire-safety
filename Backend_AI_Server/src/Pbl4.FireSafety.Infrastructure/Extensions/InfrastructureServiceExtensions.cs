@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Pbl4.FireSafety.Application.Contracts.Services;
 using Pbl4.FireSafety.Application.Features.Telemetry;
 using Pbl4.FireSafety.Application.Options;
+using Pbl4.FireSafety.Infrastructure.AI;
 using Pbl4.FireSafety.Infrastructure.Mqtt;
 using Pbl4.FireSafety.Infrastructure.Persistence;
 
@@ -46,7 +47,9 @@ public static class InfrastructureServiceExtensions
         services.AddHostedService<MqttIngestionService>();
 
         // --- AI Services (ONNX) — đăng ký ở BE-04, BE-05 ---
-        // services.AddSingleton<IRandomForestService, RandomForestOnnxService>();
+        services.AddSingleton<RandomForestOnnxService>();
+        services.AddSingleton<IRandomForestService>(sp => sp.GetRequiredService<RandomForestOnnxService>());
+        services.AddHostedService(sp => sp.GetRequiredService<RandomForestOnnxService>());
         // services.AddSingleton<IYoloService, YoloOnnxService>();
 
         // --- Fusion Decision Service — đăng ký ở BE-06 ---
