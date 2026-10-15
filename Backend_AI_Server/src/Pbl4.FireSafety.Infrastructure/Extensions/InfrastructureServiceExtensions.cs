@@ -7,6 +7,7 @@ using Pbl4.FireSafety.Application.Options;
 using Pbl4.FireSafety.Infrastructure.AI;
 using Pbl4.FireSafety.Infrastructure.Mqtt;
 using Pbl4.FireSafety.Infrastructure.Persistence;
+using Pbl4.FireSafety.Infrastructure.Services;
 
 namespace Pbl4.FireSafety.Infrastructure.Extensions;
 
@@ -45,6 +46,10 @@ public static class InfrastructureServiceExtensions
         // --- MQTT Ingestion BackgroundService — đăng ký ở BE-03 ---
         services.AddSingleton<ITelemetryValidator, TelemetryValidator>();
         services.AddHostedService<MqttIngestionService>();
+
+        // --- Mock Telemetry Service (TASK 3 Prototype / Local Demo) ---
+        services.AddSingleton<IMockTelemetryStore, MockTelemetryStore>();
+        services.AddHostedService<MockTelemetryBackgroundService>();
 
         // --- AI Services (ONNX) — đăng ký ở BE-04, BE-05 ---
         services.AddSingleton<RandomForestOnnxService>();
