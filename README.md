@@ -8,7 +8,7 @@ Hệ thống giám sát an toàn không gian kín và dự báo sớm hỏa ho�
 - **Dung hợp dữ liệu (Sensor Fusion):** Loại bỏ ngưỡng báo động tĩnh (Rule-based), sử dụng Random Forest để tự động quyết định mức độ nguy hiểm, chống báo động giả.
 - **Cảnh báo xuyên im lặng:** Đẩy thông báo khẩn cấp (FCM) ép điện thoại rung và hú còi ngay cả khi đang ở chế độ ngủ (Doze mode/Silent mode).
 
-## 🏗️ Cấu trúc Monorepo (Project Structure)
+##  Cấu trúc Monorepo (Project Structure)
 
 Dự án được chia thành 4 phân hệ chính, sử dụng kiến trúc phân tán:
 
@@ -17,14 +17,14 @@ Dự án được chia thành 4 phân hệ chính, sử dụng kiến trúc phâ
  - Mobile_Monitor_App/     # Flutter/Dart (Android App) giám sát và nhận cảnh báo
  - AI_Training_Workspace/  # Python (Jupyter Notebook) dùng để train Random Forest/YOLOv8
 
-## 🛠️ Công nghệ sử dụng (Tech Stack)
+##  Công nghệ sử dụng (Tech Stack)
 
 - **Phần cứng:** ESP32-S3, Cảm biến MQ-2/MQ-7/MQ-135/DHT20, Mạch giảm áp LM2596.
 - **AI/ML:** Scikit-Learn (Random Forest), Ultralytics (YOLOv8), ONNX Runtime.
 - **Backend:** C# .NET Core, Entity Framework Core, MySQL, MQTT Broker.
 - **Frontend (Mobile):** Flutter, GetX (State Management), Fl_Chart, Firebase Cloud Messaging.
 
-## 🚀 Hướng dẫn khởi chạy (Getting Started)
+##  Hướng dẫn khởi chạy (Getting Started)
 
 *(Chi tiết xem tại README.md của từng thư mục con)*
 
