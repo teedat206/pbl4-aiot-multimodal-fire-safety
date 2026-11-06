@@ -28,14 +28,12 @@ from ultralytics import YOLO
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-
 # =============================================================================
 # CHON CHE DO CHAY - THAY DOI BIEN NAY
 #   "local_test"  -> Kiem tra pipeline (1 epoch, CPU)
 #   "colab_full"  -> Huan luyen day du (100 epochs, GPU)
 MODE = "local_test"
 # =============================================================================
-
 
 WORKSPACE_ROOT = Path(__file__).parent.parent.resolve()
 DATA_YAML      = WORKSPACE_ROOT / "data" / "datasets" / "fire_smoke" / "data.yaml"

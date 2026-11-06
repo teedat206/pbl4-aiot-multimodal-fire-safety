@@ -40,6 +40,7 @@ import threading
 import traceback
 import argparse
 import math
+import requests
 from datetime import datetime
 from pathlib import Path
 
@@ -64,12 +65,13 @@ except ImportError:
 # =============================================================================
 
 WORKSPACE_ROOT        = Path(__file__).parent.parent
-MODEL_PATH            = WORKSPACE_ROOT / "models" / "weights" / "bestnew.pt"
+MODEL_PATH            = WORKSPACE_ROOT / "models" / "weights" / "best.pt"
 SNAPSHOT_DIR          = WORKSPACE_ROOT / "snapshots"
 DEFAULT_CONF          = 0.45
 INFERENCE_SIZE        = 640
 WINDOW_NAME           = "PBL4_RealTime"
 ALERT_CLASSES         = {"fire", "smoke", "flame"}
+ESP32_ALARM_URL = "http://192.168.90.232:81/alarm"  # Đổi thành IP thực tế của mạch
 # Thoi gian toi da (giay) cho phep camera warm-up truoc khi bao loi
 CAMERA_WARMUP_TIMEOUT = 5.0
 
@@ -372,10 +374,11 @@ def main():
     cv2.resizeWindow(WINDOW_NAME, 1280, 720)
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
 
-    frame_count = 0
-    t_prev      = time.perf_counter()
-    fps_smooth  = 0.0
-    use_track   = not args.no_track
+    frame_count     = 0
+    t_prev          = time.perf_counter()
+    fps_smooth      = 0.0
+    use_track       = not args.no_track
+    last_alarm_time = 0
 
     try:
         while True:
@@ -420,6 +423,20 @@ def main():
             # Overlay
             sensor_data = sensor.get_data()
             alert       = check_alert(results)
+
+            # --- BẮT ĐẦU PHẦN TÍCH HỢP ESP32 ---
+            current_time = time.time()
+            if alert and (current_time - last_alarm_time > 5.0):
+                print("\n  [ALARM] Phat hien lua/khoi vuot nguong! Kich hoat coi ESP32!")
+                threading.Thread(
+                    target=requests.get,
+                    args=(ESP32_ALARM_URL,),
+                    kwargs={'timeout': 2},
+                    daemon=True
+                ).start()
+                last_alarm_time = current_time
+            # --- KẾT THÚC PHẦN TÍCH HỢP ESP32 ---
+
             draw_top_bar(annotated, fps_smooth, source_label, device_label, conf)
             draw_sensor_panel(annotated, sensor_data)
             draw_alert(annotated, alert)

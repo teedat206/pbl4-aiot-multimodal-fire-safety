@@ -8,7 +8,7 @@
 
 # Nguồn đang được kích hoạt.
 # Các giá trị hợp lệ: "local_video" | "webcam" | "esp32_cam"
-active_source: "local_video"
+active_source: "webcam"
 
 sources:
   # ── Nguồn 1: File video cục bộ ────────────────────────────────────────────
