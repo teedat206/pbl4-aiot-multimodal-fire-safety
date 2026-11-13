@@ -1,4 +1,5 @@
 using Pbl4.FireSafety.Infrastructure.Extensions;
+using Pbl4.FireSafety.Infrastructure.Persistence;
 using Serilog;
 
 // ─── Bootstrap Logger ───────────────────────────────────────────────────────
@@ -71,6 +72,19 @@ try
 
     // ─── Build Application ───────────────────────────────────────────────────
     var app = builder.Build();
+
+    // ─── Tự động khởi tạo Database SQLite / Bảng dữ liệu nếu chưa có ─────────
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.Database.EnsureCreated();
+        Log.Information("Cơ sở dữ liệu đã sẵn sàng hoạt động!");
+    }
+    catch (Exception dbEx)
+    {
+        Log.Warning(dbEx, "Không thể khởi tạo cơ sở dữ liệu tự động. Sẽ tiếp tục chạy bộ nhớ tạm.");
+    }
 
     // ─── Middleware Pipeline ─────────────────────────────────────────────────
     // Ghi log mỗi HTTP request vào Serilog (thay thế UseHttpLogging).

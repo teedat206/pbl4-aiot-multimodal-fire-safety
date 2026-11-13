@@ -1,0 +1,4 @@
+<Project>
+  <!-- Vô hiệu hóa target kiểm tra bản quyền SixLabors trong môi trường học thuật/nghiên cứu đồ án -->
+  <Target Name="SixLabors_ValidateLicense" BeforeTargets="CoreCompile" />
+</Project>

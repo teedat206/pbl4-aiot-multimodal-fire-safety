@@ -392,23 +392,32 @@ public class RandomForestOnnxService : IRandomForestService, IHostedService, IDi
         };
     }
 
+    private bool _disposed;
+
     public void Dispose()
     {
-        _debounceCts?.Dispose();
-        _fileWatcher?.Dispose();
+        if (_disposed) return;
+        _disposed = true;
 
-        _sessionLock.EnterWriteLock();
+        try { _debounceCts?.Dispose(); } catch {}
+        try { _fileWatcher?.Dispose(); } catch {}
+
         try
         {
-            _session?.Dispose();
-            _session = null;
+            _sessionLock.EnterWriteLock();
+            try
+            {
+                _session?.Dispose();
+                _session = null;
+            }
+            finally
+            {
+                _sessionLock.ExitWriteLock();
+            }
         }
-        finally
-        {
-            _sessionLock.ExitWriteLock();
-        }
+        catch {}
 
-        _sessionLock.Dispose();
+        try { _sessionLock.Dispose(); } catch {}
         GC.SuppressFinalize(this);
     }
 }

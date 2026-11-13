@@ -65,7 +65,7 @@ public class AppDbContext : DbContext
 
             entity.Property(e => e.TimestampUtc)
                   .IsRequired()
-                  .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+                  .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
             // Tối ưu Index cho truy vấn Time-Series: Lọc theo thiết bị và sắp xếp/lấy khoảng thời gian
             entity.HasIndex(e => new { e.DeviceId, e.TimestampUtc })
@@ -112,7 +112,7 @@ public class AppDbContext : DbContext
 
             entity.Property(e => e.TimestampUtc)
                   .IsRequired()
-                  .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+                  .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
             // Index phục vụ truy vấn danh sách sự kiện gần nhất cho ứng dụng Mobile
             entity.HasIndex(e => new { e.DeviceId, e.TimestampUtc })

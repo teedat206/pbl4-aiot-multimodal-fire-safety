@@ -34,13 +34,21 @@ public static class InfrastructureServiceExtensions
         services.Configure<SignalROptions>(
             configuration.GetSection(SignalROptions.SectionName));
 
-        // --- Persistence (EF Core DbContext) — đăng ký ở BE-02 ---
+        // --- Persistence (EF Core DbContext: Hỗ trợ SQLite tự động hoặc MySQL) ---
         var connectionString = configuration.GetConnectionString("Pbl4Database")
-            ?? throw new InvalidOperationException("Connection string 'Pbl4Database' not found in configuration.");
+            ?? "Data Source=firesafety.db";
 
         services.AddDbContext<AppDbContext>(options =>
         {
-            options.UseMySQL(connectionString);
+            if (connectionString.Contains(".db", StringComparison.OrdinalIgnoreCase) ||
+                connectionString.StartsWith("Data Source=", StringComparison.OrdinalIgnoreCase))
+            {
+                options.UseSqlite(connectionString);
+            }
+            else
+            {
+                options.UseMySQL(connectionString);
+            }
         });
 
         // --- MQTT Ingestion BackgroundService — đăng ký ở BE-03 ---
@@ -55,7 +63,10 @@ public static class InfrastructureServiceExtensions
         services.AddSingleton<RandomForestOnnxService>();
         services.AddSingleton<IRandomForestService>(sp => sp.GetRequiredService<RandomForestOnnxService>());
         services.AddHostedService(sp => sp.GetRequiredService<RandomForestOnnxService>());
-        // services.AddSingleton<IYoloService, YoloOnnxService>();
+
+        services.AddSingleton<YoloOnnxService>();
+        services.AddSingleton<IYoloService>(sp => sp.GetRequiredService<YoloOnnxService>());
+        services.AddHostedService(sp => sp.GetRequiredService<YoloOnnxService>());
 
         // --- Fusion Decision Service — đăng ký ở BE-06 ---
         // services.AddScoped<IFusionDecisionService, FusionDecisionService>();

@@ -1,0 +1,10 @@
+# Local SQLite database files
+*.db
+*.db-shm
+*.db-wal
+
+# Ensure MQTT source code and directories are tracked
+!**/Mqtt/
+!**/Mqtt/**
+!**/MqttOptions.cs
+!**/*Mqtt*.cs

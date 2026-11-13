@@ -40,14 +40,25 @@ public class AppDbContextFactory : IDesignTimeDbContextFactory<AppDbContext>
             }
         }
 
-        connectionString ??= "Server=localhost;Database=pbl4_firesafety;User Id=root;Password=root;";
+        connectionString ??= "Data Source=firesafety.db";
 
         var builder = new DbContextOptionsBuilder<AppDbContext>();
 
-        builder.UseMySQL(connectionString, mySqlOptions =>
+        if (connectionString.Contains(".db", StringComparison.OrdinalIgnoreCase) ||
+            connectionString.StartsWith("Data Source=", StringComparison.OrdinalIgnoreCase))
         {
-            mySqlOptions.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName);
-        });
+            builder.UseSqlite(connectionString, sqliteOptions =>
+            {
+                sqliteOptions.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName);
+            });
+        }
+        else
+        {
+            builder.UseMySQL(connectionString, mySqlOptions =>
+            {
+                mySqlOptions.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName);
+            });
+        }
 
         return new AppDbContext(builder.Options);
     }
