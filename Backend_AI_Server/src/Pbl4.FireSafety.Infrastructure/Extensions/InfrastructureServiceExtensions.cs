@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Pbl4.FireSafety.Application.Contracts.Services;
+using Pbl4.FireSafety.Application.Features.Decision;
 using Pbl4.FireSafety.Application.Features.Telemetry;
 using Pbl4.FireSafety.Application.Options;
 using Pbl4.FireSafety.Infrastructure.AI;
@@ -69,7 +70,7 @@ public static class InfrastructureServiceExtensions
         services.AddHostedService(sp => sp.GetRequiredService<YoloOnnxService>());
 
         // --- Fusion Decision Service — đăng ký ở BE-06 ---
-        // services.AddScoped<IFusionDecisionService, FusionDecisionService>();
+        services.AddSingleton<IFusionDecisionService, FusionDecisionService>();
 
         // --- Notification Services — đăng ký ở BE-07, BE-08 ---
         // services.AddScoped<IFireSafetyHubService, FireSafetyHubService>();

@@ -19,7 +19,8 @@ namespace Pbl4.FireSafety.Infrastructure.Mqtt;
 
 /// <summary>
 /// BackgroundService chạy nền 24/7, duy trì kết nối liên tục với MQTT Broker,
-/// lắng nghe luồng dữ liệu cảm biến và frame ảnh camera từ các mạch ESP32, kiểm định tính hợp lệ và xử lý AI.
+/// lắng nghe luồng dữ liệu cảm biến và frame ảnh camera từ các mạch ESP32, kiểm định tính hợp lệ,
+/// thực thi suy luận AI đa phương thức và kết hợp qua Fusion Decision Matrix.
 /// </summary>
 public class MqttIngestionService : BackgroundService
 {
@@ -30,6 +31,7 @@ public class MqttIngestionService : BackgroundService
     private readonly IRandomForestService _rfService;
     private readonly IMockTelemetryStore _telemetryStore;
     private readonly IYoloService _yoloService;
+    private readonly IFusionDecisionService _fusionService;
     private IMqttClient? _mqttClient;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -45,7 +47,8 @@ public class MqttIngestionService : BackgroundService
         ITelemetryValidator validator,
         IRandomForestService rfService,
         IMockTelemetryStore telemetryStore,
-        IYoloService yoloService)
+        IYoloService yoloService,
+        IFusionDecisionService fusionService)
     {
         _logger = logger;
         _mqttOptions = mqttOptions.Value;
@@ -54,6 +57,7 @@ public class MqttIngestionService : BackgroundService
         _rfService = rfService;
         _telemetryStore = telemetryStore;
         _yoloService = yoloService;
+        _fusionService = fusionService;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -286,8 +290,18 @@ public class MqttIngestionService : BackgroundService
             detection.InferenceTimeMs,
             detection.ModelSource);
 
-        // Cập nhật kết quả AI vision vào bản ghi Telemetry mới nhất trên RAM
+        // Lấy dữ liệu cảm biến gần nhất để chạy Fusion đa phương thức
         var latest = _telemetryStore.GetLatest();
+        var sensorClass = latest != null ? (FireRiskClass)latest.AiResult.PredictedClass : FireRiskClass.Safe;
+        float sensorConf = 0.90f;
+
+        var fusionResult = _fusionService.Evaluate(
+            sensorClass,
+            sensorConf,
+            detection.MaxFireConfidence,
+            detection.MaxSmokeConfidence);
+
+        // Cập nhật kết quả AI vision và Fusion vào bản ghi Telemetry mới nhất trên RAM
         if (latest != null)
         {
             var updated = new SystemTelemetryReport
@@ -298,13 +312,47 @@ public class MqttIngestionService : BackgroundService
                 Sensors = latest.Sensors,
                 AiResult = new AiInferenceResult
                 {
-                    PredictedClass = latest.AiResult.PredictedClass,
-                    ClassLabel = latest.AiResult.ClassLabel,
+                    PredictedClass = (int)fusionResult.FinalClass,
+                    ClassLabel = fusionResult.ClassLabel,
                     YoloFireConfidence = detection.MaxFireConfidence,
                     YoloSmokeConfidence = detection.MaxSmokeConfidence
                 }
             };
             _telemetryStore.Add(updated);
+        }
+
+        // Kích hoạt ghi nhận AlertEvent nếu kết quả Fusion từ Camera nâng mức nguy hiểm
+        if (fusionResult.IsAlertTriggered)
+        {
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+                var alertEvent = new AlertEvent
+                {
+                    DeviceId = deviceId,
+                    TriggerClass = fusionResult.FinalClass,
+                    SensorConfidence = sensorConf,
+                    VisionConfidence = detection.MaxFireConfidence,
+                    FcmSent = false,
+                    Message = fusionResult.Explanation,
+                    TimestampUtc = DateTime.UtcNow
+                };
+                dbContext.AlertEvents.Add(alertEvent);
+                dbContext.SaveChanges();
+
+                _logger.LogWarning(
+                    "🚨 [CẢNH BÁO TỪ THỊ GIÁC CAMERA] [{DeviceId}] => {Class} ({Conf:P0}). Lý do: {Reason}",
+                    deviceId,
+                    fusionResult.FinalClass,
+                    fusionResult.FinalConfidence,
+                    fusionResult.Explanation);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Lỗi khi lưu AlertEvent từ frame camera cho [{DeviceId}].", deviceId);
+            }
         }
     }
 
@@ -313,15 +361,23 @@ public class MqttIngestionService : BackgroundService
         var utcNow = DateTime.UtcNow;
 
         // 1. Thực thi suy luận AI Random Forest (ONNX) từ vector cảm biến [smoke, gas, co, temp]
-        var aiResult = _rfService.Predict(payload.Smoke, payload.Gas, payload.Co, payload.Temp);
-        var currentRiskClass = aiResult.RiskClass;
+        var sensorAiResult = _rfService.Predict(payload.Smoke, payload.Gas, payload.Co, payload.Temp);
 
         // Lấy lại confidences thị giác từ frame gần nhất (nếu có)
         var latestReport = _telemetryStore.GetLatest();
         double yoloFireConf = latestReport?.AiResult.YoloFireConfidence ?? 0.0;
         double yoloSmokeConf = latestReport?.AiResult.YoloSmokeConfidence ?? 0.0;
 
-        // 2. Lưu vào In-Memory Store để Mobile App đọc realtime qua GET /api/telemetry/latest và recent
+        // 2. Chạy Ma trận quyết định đa phương thức (Fusion Decision Matrix)
+        var fusionResult = _fusionService.Evaluate(
+            sensorAiResult.RiskClass,
+            sensorAiResult.Confidence,
+            (float)yoloFireConf,
+            (float)yoloSmokeConf);
+
+        var finalRiskClass = fusionResult.FinalClass;
+
+        // 3. Lưu vào In-Memory Store để Mobile App đọc realtime qua GET /api/telemetry/latest và recent
         _telemetryStore.Add(new SystemTelemetryReport
         {
             Timestamp = utcNow,
@@ -329,8 +385,8 @@ public class MqttIngestionService : BackgroundService
             SensitivityMode = "STANDARD",
             AiResult = new AiInferenceResult
             {
-                PredictedClass = (int)currentRiskClass,
-                ClassLabel = currentRiskClass.ToString().ToUpperInvariant(),
+                PredictedClass = (int)finalRiskClass,
+                ClassLabel = fusionResult.ClassLabel,
                 YoloFireConfidence = yoloFireConf,
                 YoloSmokeConfidence = yoloSmokeConf
             },
@@ -344,7 +400,7 @@ public class MqttIngestionService : BackgroundService
             }
         });
 
-        // 3. Lưu bền vững vào Database SQLite
+        // 4. Lưu bền vững vào Database SQLite
         try
         {
             using var scope = _scopeFactory.CreateScope();
@@ -357,7 +413,7 @@ public class MqttIngestionService : BackgroundService
                 Gas = payload.Gas,
                 Co = payload.Co,
                 Temperature = payload.Temp,
-                RiskClass = currentRiskClass,
+                RiskClass = finalRiskClass,
                 TimestampUtc = utcNow
             };
 
@@ -372,7 +428,7 @@ public class MqttIngestionService : BackgroundService
                 {
                     DeviceId = payload.DeviceId,
                     IsOnline = true,
-                    LastRiskClass = currentRiskClass,
+                    LastRiskClass = finalRiskClass,
                     LastSeenUtc = utcNow,
                     FirmwareVersion = "1.0.0"
                 };
@@ -382,26 +438,47 @@ public class MqttIngestionService : BackgroundService
             {
                 deviceStatus.IsOnline = true;
                 deviceStatus.LastSeenUtc = utcNow;
-                deviceStatus.LastRiskClass = currentRiskClass;
+                deviceStatus.LastRiskClass = finalRiskClass;
+            }
+
+            // Nếu mức độ nguy hiểm vượt ngưỡng (Class >= HighRisk), tự động tạo bản ghi AlertEvent
+            if (fusionResult.IsAlertTriggered)
+            {
+                var alertEvent = new AlertEvent
+                {
+                    DeviceId = payload.DeviceId,
+                    TriggerClass = finalRiskClass,
+                    SensorConfidence = sensorAiResult.Confidence,
+                    VisionConfidence = (float)yoloFireConf,
+                    FcmSent = false,
+                    Message = fusionResult.Explanation,
+                    TimestampUtc = utcNow
+                };
+                dbContext.AlertEvents.Add(alertEvent);
+
+                _logger.LogWarning(
+                    "🚨 [CẢNH BÁO HỎA HOẠN KÍCH HOẠT] [{DeviceId}] => Mức độ: {Class} ({Conf:P0}). Lý do: {Reason}",
+                    payload.DeviceId,
+                    finalRiskClass,
+                    fusionResult.FinalConfidence,
+                    fusionResult.Explanation);
             }
 
             await dbContext.SaveChangesAsync();
         }
         catch (Exception dbEx)
         {
-            _logger.LogWarning(dbEx, "Lỗi khi lưu Telemetry xuống Database cho [{DeviceId}]. Dữ liệu vẫn được giữ trên RAM.", payload.DeviceId);
+            _logger.LogWarning(dbEx, "Lỗi khi lưu Telemetry/Alert xuống Database cho [{DeviceId}]. Dữ liệu vẫn được giữ trên RAM.", payload.DeviceId);
         }
 
         _logger.LogInformation(
-            "Đã ghi nhận Telemetry từ [{DeviceId}] | Khói: {Smoke} | Gas: {Gas}ppm | CO: {Co}ppm | Nhiệt: {Temp}°C => AI: {RiskClass} (Tin cậy: {Confidence:P0}, Nguồn: {Source})",
+            "Đã ghi nhận Telemetry từ [{DeviceId}] | Cảm biến: {SensorClass} ({SensorConf:P0}) | Thị giác: Lửa {FireConf:P0} | => FUSION: {FinalClass} ({FinalConf:P0})",
             payload.DeviceId,
-            payload.Smoke,
-            payload.Gas,
-            payload.Co,
-            payload.Temp,
-            currentRiskClass,
-            aiResult.Confidence,
-            aiResult.ModelSource);
+            sensorAiResult.RiskClass,
+            sensorAiResult.Confidence,
+            yoloFireConf,
+            finalRiskClass,
+            fusionResult.FinalConfidence);
     }
 
     public override void Dispose()

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Pbl4.FireSafety.Application.Contracts.Services;
 using Pbl4.FireSafety.Application.DTOs;
+using Pbl4.FireSafety.Domain.Enums;
 using Pbl4.FireSafety.Domain.Models;
 
 namespace Pbl4.FireSafety.API.Controllers;
@@ -67,6 +68,23 @@ public class TelemetryController : ControllerBase
         var imageBytes = memoryStream.ToArray();
 
         var result = yoloService.Detect(imageBytes);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Thử nghiệm Ma trận quyết định đa phương thức (BE-06 Fusion Decision Matrix).
+    /// Kết hợp class cảm biến từ Random Forest với độ tin cậy lửa/khói từ YOLOv8 để tính toán rủi ro cuối cùng.
+    /// </summary>
+    [HttpPost("evaluate-fusion")]
+    [ProducesResponseType(typeof(FusionResult), StatusCodes.Status200OK)]
+    public IActionResult EvaluateFusion(
+        [FromQuery] FireRiskClass sensorClass,
+        [FromQuery] float sensorConfidence,
+        [FromQuery] float? visionFireConfidence,
+        [FromQuery] float? visionSmokeConfidence,
+        [FromServices] IFusionDecisionService fusionService)
+    {
+        var result = fusionService.Evaluate(sensorClass, sensorConfidence, visionFireConfidence, visionSmokeConfidence);
         return Ok(result);
     }
 }
