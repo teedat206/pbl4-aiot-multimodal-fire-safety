@@ -1,3 +1,6 @@
+using Pbl4.FireSafety.API.Hubs;
+using Pbl4.FireSafety.API.Services;
+using Pbl4.FireSafety.Application.Contracts.Services;
 using Pbl4.FireSafety.Infrastructure.Extensions;
 using Pbl4.FireSafety.Infrastructure.Persistence;
 using Serilog;
@@ -67,6 +70,9 @@ try
     // ─── Infrastructure Services (Options, EF, MQTT, AI, FCM) ───────────────
     builder.Services.AddInfrastructureServices(builder.Configuration);
 
+    // ─── SignalR Hub Service (BE-07) ─────────────────────────────────────────
+    builder.Services.AddSingleton<IFireSafetyHubService, FireSafetyHubService>();
+
     // ─── Health Checks ───────────────────────────────────────────────────────
     builder.Services.AddHealthChecks();
 
@@ -108,8 +114,8 @@ try
     // ─── Endpoints ───────────────────────────────────────────────────────────
     app.MapControllers();
 
-    // SignalR Hub endpoint (sẽ triển khai đầy đủ ở BE-07)
-    // app.MapHub<FireSafetyHub>("/hubs/firesafety");
+    // SignalR Hub endpoint (BE-07)
+    app.MapHub<FireSafetyHub>("/hubs/firesafety");
 
     app.MapHealthChecks("/health");
 

@@ -32,6 +32,7 @@ public class MqttIngestionService : BackgroundService
     private readonly IMockTelemetryStore _telemetryStore;
     private readonly IYoloService _yoloService;
     private readonly IFusionDecisionService _fusionService;
+    private readonly IFireSafetyHubService? _hubService;
     private IMqttClient? _mqttClient;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -48,7 +49,8 @@ public class MqttIngestionService : BackgroundService
         IRandomForestService rfService,
         IMockTelemetryStore telemetryStore,
         IYoloService yoloService,
-        IFusionDecisionService fusionService)
+        IFusionDecisionService fusionService,
+        IFireSafetyHubService? hubService = null)
     {
         _logger = logger;
         _mqttOptions = mqttOptions.Value;
@@ -58,6 +60,7 @@ public class MqttIngestionService : BackgroundService
         _telemetryStore = telemetryStore;
         _yoloService = yoloService;
         _fusionService = fusionService;
+        _hubService = hubService;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -214,7 +217,7 @@ public class MqttIngestionService : BackgroundService
         // 1. Kiểm tra nếu gói tin thuộc kênh Camera (Binary JPEG)
         if (topic.EndsWith("camera/frame", StringComparison.OrdinalIgnoreCase))
         {
-            ProcessCameraFrame(topic, payloadBytes);
+            await ProcessCameraFrameAsync(topic, payloadBytes);
             return;
         }
 
@@ -267,7 +270,7 @@ public class MqttIngestionService : BackgroundService
         }
     }
 
-    private void ProcessCameraFrame(string topic, byte[] imageBytes)
+    private async Task ProcessCameraFrameAsync(string topic, byte[] imageBytes)
     {
         var deviceId = "esp32-cam-01";
         var topicParts = topic.Split('/');
@@ -340,7 +343,7 @@ public class MqttIngestionService : BackgroundService
                     TimestampUtc = DateTime.UtcNow
                 };
                 dbContext.AlertEvents.Add(alertEvent);
-                dbContext.SaveChanges();
+                await dbContext.SaveChangesAsync();
 
                 _logger.LogWarning(
                     "🚨 [CẢNH BÁO TỪ THỊ GIÁC CAMERA] [{DeviceId}] => {Class} ({Conf:P0}). Lý do: {Reason}",
@@ -348,6 +351,21 @@ public class MqttIngestionService : BackgroundService
                     fusionResult.FinalClass,
                     fusionResult.FinalConfidence,
                     fusionResult.Explanation);
+
+                // Broadcast Cảnh báo realtime qua SignalR Hub xuống Mobile App (BE-07)
+                if (_hubService != null)
+                {
+                    await _hubService.BroadcastAlertAsync(new AlertBroadcastDto
+                    {
+                        AlertId = alertEvent.Id,
+                        DeviceId = deviceId,
+                        TriggerClass = fusionResult.FinalClass,
+                        SensorConfidence = sensorConf,
+                        VisionConfidence = detection.MaxFireConfidence,
+                        Message = fusionResult.Explanation,
+                        TimestampUtc = alertEvent.TimestampUtc
+                    });
+                }
             }
             catch (Exception ex)
             {
@@ -401,6 +419,7 @@ public class MqttIngestionService : BackgroundService
         });
 
         // 4. Lưu bền vững vào Database SQLite
+        AlertEvent? alertEvent = null;
         try
         {
             using var scope = _scopeFactory.CreateScope();
@@ -444,7 +463,7 @@ public class MqttIngestionService : BackgroundService
             // Nếu mức độ nguy hiểm vượt ngưỡng (Class >= HighRisk), tự động tạo bản ghi AlertEvent
             if (fusionResult.IsAlertTriggered)
             {
-                var alertEvent = new AlertEvent
+                alertEvent = new AlertEvent
                 {
                     DeviceId = payload.DeviceId,
                     TriggerClass = finalRiskClass,
@@ -469,6 +488,40 @@ public class MqttIngestionService : BackgroundService
         catch (Exception dbEx)
         {
             _logger.LogWarning(dbEx, "Lỗi khi lưu Telemetry/Alert xuống Database cho [{DeviceId}]. Dữ liệu vẫn được giữ trên RAM.", payload.DeviceId);
+        }
+
+        // 5. Broadcast Telemetry & Alert qua SignalR Hub xuống Mobile App (BE-07)
+        if (_hubService != null)
+        {
+            var telemetryBroadcast = new TelemetryBroadcastDto
+            {
+                DeviceId = payload.DeviceId,
+                Smoke = payload.Smoke,
+                Gas = payload.Gas,
+                Co = payload.Co,
+                Temp = payload.Temp,
+                Class = (int)finalRiskClass,
+                ClassLabel = fusionResult.ClassLabel,
+                TimestampUtc = utcNow
+            };
+
+            await _hubService.BroadcastTelemetryAsync(telemetryBroadcast);
+
+            if (fusionResult.IsAlertTriggered)
+            {
+                var alertBroadcast = new AlertBroadcastDto
+                {
+                    AlertId = alertEvent?.Id ?? 0,
+                    DeviceId = payload.DeviceId,
+                    TriggerClass = finalRiskClass,
+                    SensorConfidence = sensorAiResult.Confidence,
+                    VisionConfidence = (float)yoloFireConf,
+                    Message = fusionResult.Explanation,
+                    TimestampUtc = utcNow
+                };
+
+                await _hubService.BroadcastAlertAsync(alertBroadcast);
+            }
         }
 
         _logger.LogInformation(
