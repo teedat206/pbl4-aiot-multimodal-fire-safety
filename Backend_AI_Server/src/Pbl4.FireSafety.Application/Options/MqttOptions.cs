@@ -23,6 +23,9 @@ public sealed class MqttOptions
     /// <summary>Topic nhận frame ảnh từ ESP32-CAM.</summary>
     public string CameraFrameTopic { get; set; } = "pbl4/camera/frame";
 
+    /// <summary>Topic nhận kết quả thị giác YOLOv8 (JSON) từ AI Server.</summary>
+    public string VisionTopic { get; set; } = "pbl4/vision";
+
     /// <summary>Username xác thực Broker (nếu có).</summary>
     public string? Username { get; set; }
 

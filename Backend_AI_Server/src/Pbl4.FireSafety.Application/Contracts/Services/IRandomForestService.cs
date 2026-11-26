@@ -27,7 +27,7 @@ public record SensorInferenceResult
 public interface IRandomForestService
 {
     /// <summary>
-    /// Thực hiện suy luận dự đoán rủi ro hỏa hoạn từ vector chỉ số cảm biến (hỗ trợ cả mô hình 4 và 6 đặc trưng).
+    /// Thực hiện suy luận dự đoán rủi ro hỏa hoạn từ vector chỉ số cảm biến và dữ liệu thị giác (hỗ trợ cả mô hình 4 và 6 đặc trưng).
     /// </summary>
     SensorInferenceResult Predict(
         float smoke,
@@ -35,7 +35,11 @@ public interface IRandomForestService
         float co,
         float temp,
         float humidity = 60f,
-        float aqi = 0f);
+        float aqi = 0f,
+        bool detected = false,
+        int yoloClass = 0,
+        float yoloConf = 0f,
+        float bboxArea = 0f);
 
     /// <summary>
     /// Kiểm tra xem file mô hình ONNX thật đã được nạp thành công hay đang chạy ở chế độ fallback.

@@ -113,8 +113,9 @@ public class RandomForestOnnxService : IRandomForestService, IHostedService, IDi
     }
 
     /// <summary>
-    /// Thực hiện suy luận dự đoán nguy cơ cháy nổ từ dữ liệu cảm biến đa biến.
-    /// Hỗ trợ tự động cả mô hình 4 đặc trưng [smoke, gas, co, temp] và 6 đặc trưng [smoke, gas, co, temp, humidity, aqi].
+    /// Thực hiện suy luận dự đoán nguy cơ cháy nổ từ dữ liệu cảm biến và đặc trưng thị giác.
+    /// Hỗ trợ tự động cả mô hình 4 đặc trưng [smoke, gas, co, temp] và mô hình 6 đặc trưng
+    /// [detected, yolo_conf, bbox_area, temp, humidity, gas/aqi].
     /// Thread-safe hoàn toàn, không xung đột khi đang reload model.
     /// </summary>
     public SensorInferenceResult Predict(
@@ -123,14 +124,29 @@ public class RandomForestOnnxService : IRandomForestService, IHostedService, IDi
         float co,
         float temp,
         float humidity = 60f,
-        float aqi = 0f)
+        float aqi = 0f,
+        bool detected = false,
+        int yoloClass = 0,
+        float yoloConf = 0f,
+        float bboxArea = 0f)
     {
         _sessionLock.EnterReadLock();
         try
         {
             if (_session != null)
             {
-                return RunOnnxInference(_session, smoke, gas, co, temp, humidity, aqi);
+                return RunOnnxInference(
+                    _session,
+                    smoke,
+                    gas,
+                    co,
+                    temp,
+                    humidity,
+                    aqi,
+                    detected,
+                    yoloClass,
+                    yoloConf,
+                    bboxArea);
             }
         }
         catch (Exception ex)
@@ -307,7 +323,11 @@ public class RandomForestOnnxService : IRandomForestService, IHostedService, IDi
         float co,
         float temp,
         float humidity,
-        float aqi)
+        float aqi,
+        bool detected,
+        int yoloClass,
+        float yoloConf,
+        float bboxArea)
     {
         var inputMeta = session.InputMetadata.First();
         var inputName = inputMeta.Key;
@@ -316,7 +336,18 @@ public class RandomForestOnnxService : IRandomForestService, IHostedService, IDi
             : 4;
 
         // Xây dựng vector đầu vào khớp với số lượng đặc trưng mà model ONNX yêu cầu (4 hoặc 6+)
-        var inputValues = BuildInputVector(expectedFeatureCount, smoke, gas, co, temp, humidity, aqi);
+        var inputValues = BuildInputVector(
+            expectedFeatureCount,
+            smoke,
+            gas,
+            co,
+            temp,
+            humidity,
+            aqi,
+            detected,
+            yoloClass,
+            yoloConf,
+            bboxArea);
         var dimensions = new[] { 1, expectedFeatureCount };
         var tensor = new DenseTensor<float>(inputValues, dimensions);
 
@@ -405,11 +436,26 @@ public class RandomForestOnnxService : IRandomForestService, IHostedService, IDi
         float co,
         float temp,
         float humidity,
-        float aqi)
+        float aqi,
+        bool detected,
+        int yoloClass,
+        float yoloConf,
+        float bboxArea)
     {
+        // Mô hình 6 đặc trưng kết hợp dữ liệu thị giác (pbl4/vision) + cảm biến (pbl4/telemetry):
+        // [0] detected (0/1), [1] yolo_conf, [2] bbox_area, [3] temp, [4] humidity, [5] gas/smoke/aqi
+        var gasOrAirFeature = gas > 0f ? gas : (smoke > 0f ? smoke : aqi);
         var baseFeatures = expectedFeatureCount <= 4
             ? new[] { smoke, gas, co, temp }
-            : new[] { smoke, gas, co, temp, humidity, aqi };
+            : new[]
+            {
+                detected ? 1f : (yoloClass > 0 ? 1f : 0f),
+                detected ? yoloConf : 0f,
+                detected ? bboxArea : 0f,
+                temp,
+                humidity,
+                gasOrAirFeature
+            };
 
         if (baseFeatures.Length == expectedFeatureCount)
         {

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -33,6 +34,10 @@ public class MqttIngestionService : BackgroundService
     private readonly IYoloService _yoloService;
     private readonly IFusionDecisionService _fusionService;
     private readonly IFireSafetyHubService? _hubService;
+    private readonly ConcurrentDictionary<string, (VisionPayloadDto Payload, DateTime ReceivedUtc)> _latestVisionByDevice = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, (TelemetryPayloadDto Payload, DateTime ReceivedUtc)> _latestTelemetryByDevice = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly TimeSpan VisionFreshnessWindow = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan TelemetryFreshnessWindow = TimeSpan.FromSeconds(30);
     private IMqttClient? _mqttClient;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -184,19 +189,27 @@ public class MqttIngestionService : BackgroundService
             ? "pbl4/camera/frame"
             : _mqttOptions.CameraFrameTopic;
 
+        // 3. Topic vision JSON từ AI Server (YOLOv8)
+        var visionTopic = string.IsNullOrWhiteSpace(_mqttOptions.VisionTopic)
+            ? "pbl4/vision"
+            : _mqttOptions.VisionTopic;
+
         var subscribeOptions = factory.CreateSubscribeOptionsBuilder()
             .WithTopicFilter(f => f.WithTopic(telemetryTopic).WithAtLeastOnceQoS())
             .WithTopicFilter(f => f.WithTopic("pbl4/+/telemetry").WithAtLeastOnceQoS())
             .WithTopicFilter(f => f.WithTopic(cameraTopic).WithAtLeastOnceQoS())
             .WithTopicFilter(f => f.WithTopic("pbl4/+/camera/frame").WithAtLeastOnceQoS())
+            .WithTopicFilter(f => f.WithTopic(visionTopic).WithAtLeastOnceQoS())
+            .WithTopicFilter(f => f.WithTopic("pbl4/+/vision").WithAtLeastOnceQoS())
             .Build();
 
         await _mqttClient!.SubscribeAsync(subscribeOptions);
 
         _logger.LogInformation(
-            "Đã đăng ký thành công các Topic: [{TelemetryTopic}], [pbl4/+/telemetry], [{CameraTopic}], [pbl4/+/camera/frame]",
+            "Đã đăng ký thành công các Topic: [{TelemetryTopic}], [pbl4/+/telemetry], [{CameraTopic}], [pbl4/+/camera/frame], [{VisionTopic}], [pbl4/+/vision]",
             telemetryTopic,
-            cameraTopic);
+            cameraTopic,
+            visionTopic);
     }
 
     private Task OnDisconnectedAsync(MqttClientDisconnectedEventArgs args)
@@ -221,7 +234,15 @@ public class MqttIngestionService : BackgroundService
             return;
         }
 
-        // 2. Xử lý gói tin Telemetry (JSON cảm biến)
+        // 2. Kiểm tra nếu gói tin thuộc kênh Vision JSON từ AI Server (pbl4/vision)
+        if (topic.EndsWith("/vision", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(topic, _mqttOptions.VisionTopic, StringComparison.OrdinalIgnoreCase))
+        {
+            await ProcessVisionAsync(topic, payloadBytes);
+            return;
+        }
+
+        // 3. Xử lý gói tin Telemetry (JSON cảm biến)
         var jsonString = Encoding.UTF8.GetString(payloadBytes);
         _logger.LogDebug("Nhận gói tin từ Topic [{Topic}]: {Payload}", topic, jsonString);
 
@@ -327,70 +348,224 @@ public class MqttIngestionService : BackgroundService
         // Kích hoạt ghi nhận AlertEvent nếu kết quả Fusion từ Camera nâng mức nguy hiểm
         if (fusionResult.IsAlertTriggered)
         {
-            try
-            {
-                using var scope = _scopeFactory.CreateScope();
-                var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await PersistAndBroadcastVisionAlertAsync(
+                deviceId,
+                fusionResult,
+                sensorConf,
+                detection.MaxFireConfidence,
+                "CẢNH BÁO TỪ THỊ GIÁC CAMERA");
+        }
+    }
 
-                var alertEvent = new AlertEvent
+    private async Task ProcessVisionAsync(string topic, byte[] payloadBytes)
+    {
+        var jsonString = Encoding.UTF8.GetString(payloadBytes);
+        _logger.LogDebug("Nhận gói tin Vision từ Topic [{Topic}]: {Payload}", topic, jsonString);
+
+        VisionPayloadDto? visionDto;
+        try
+        {
+            visionDto = JsonSerializer.Deserialize<VisionPayloadDto>(jsonString, JsonOptions);
+        }
+        catch (JsonException jsonEx)
+        {
+            _logger.LogError(
+                jsonEx,
+                "Không thể parse JSON Vision từ Topic [{Topic}]. Nội dung: {RawPayload}",
+                topic,
+                jsonString);
+            return;
+        }
+
+        if (visionDto == null)
+        {
+            _logger.LogWarning("Gói tin Vision từ [{Topic}] rỗng và bị bỏ qua.", topic);
+            return;
+        }
+
+        var deviceId = visionDto.DeviceId;
+        if (string.IsNullOrWhiteSpace(deviceId))
+        {
+            var topicParts = topic.Split('/');
+            deviceId = topicParts.Length == 3 && topicParts[0] == "pbl4" && topicParts[2] == "vision"
+                ? topicParts[1]
+                : "esp32-s3-001";
+            visionDto = visionDto with { DeviceId = deviceId };
+        }
+
+        var utcNow = DateTime.UtcNow;
+        _latestVisionByDevice[deviceId] = (visionDto, utcNow);
+
+        // Lấy thông số cảm biến gần nhất của đúng device để ghép cặp đưa vào rf_model.onnx
+        TelemetryPayloadDto? cachedSensor = null;
+        if (_latestTelemetryByDevice.TryGetValue(deviceId, out var telemetryEntry) &&
+            utcNow - telemetryEntry.ReceivedUtc <= TelemetryFreshnessWindow)
+        {
+            cachedSensor = telemetryEntry.Payload;
+        }
+
+        var sensorAiResult = _rfService.Predict(
+            smoke: cachedSensor?.Smoke ?? 0f,
+            gas: cachedSensor?.Gas ?? 0f,
+            co: cachedSensor?.Co ?? 0f,
+            temp: cachedSensor?.Temp ?? 28f,
+            humidity: cachedSensor?.Humidity ?? 60f,
+            aqi: cachedSensor?.Aqi ?? 0f,
+            detected: visionDto.Detected,
+            yoloClass: visionDto.YoloClass,
+            yoloConf: visionDto.YoloConf,
+            bboxArea: visionDto.BboxArea);
+
+        float fireConf = visionDto.Detected && visionDto.YoloClass != 1 ? visionDto.YoloConf : 0f;
+        float smokeConf = visionDto.Detected && visionDto.YoloClass == 1 ? visionDto.YoloConf : 0f;
+
+        var fusionResult = _fusionService.Evaluate(
+            sensorAiResult.RiskClass,
+            sensorAiResult.Confidence,
+            fireConf,
+            smokeConf);
+
+        var latest = _telemetryStore.GetLatest();
+        _telemetryStore.Add(new SystemTelemetryReport
+        {
+            Timestamp = utcNow,
+            Status = latest?.Status ?? "ONLINE",
+            SensitivityMode = latest?.SensitivityMode ?? "STANDARD",
+            Sensors = cachedSensor != null
+                ? new SensorMetrics
                 {
+                    Temp = cachedSensor.Temp,
+                    Humidity = cachedSensor.Humidity,
+                    GasMq2 = cachedSensor.Gas,
+                    SmokeMq135 = cachedSensor.Smoke,
+                    CoMq7 = cachedSensor.Co
+                }
+                : (latest?.Sensors ?? new SensorMetrics()),
+            AiResult = new AiInferenceResult
+            {
+                PredictedClass = (int)fusionResult.FinalClass,
+                ClassLabel = fusionResult.ClassLabel,
+                YoloFireConfidence = fireConf,
+                YoloSmokeConfidence = smokeConf
+            }
+        });
+
+        _logger.LogInformation(
+            "Đã nhận Vision từ [{DeviceId}] | Detected={Detected}, YoloClass={YoloClass}, Conf={Conf:P0}, Area={Area} => RF={RfClass} ({RfConf:P0}) | FUSION={FinalClass}",
+            deviceId,
+            visionDto.Detected,
+            visionDto.YoloClass,
+            visionDto.YoloConf,
+            visionDto.BboxArea,
+            sensorAiResult.RiskClass,
+            sensorAiResult.Confidence,
+            fusionResult.FinalClass);
+
+        if (fusionResult.IsAlertTriggered)
+        {
+            await PersistAndBroadcastVisionAlertAsync(
+                deviceId,
+                fusionResult,
+                sensorAiResult.Confidence,
+                fireConf > 0f ? fireConf : smokeConf,
+                "CẢNH BÁO TỪ AI VISION");
+        }
+    }
+
+    private async Task PersistAndBroadcastVisionAlertAsync(
+        string deviceId,
+        FusionResult fusionResult,
+        float sensorConf,
+        float visionConf,
+        string logTag)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var alertEvent = new AlertEvent
+            {
+                DeviceId = deviceId,
+                TriggerClass = fusionResult.FinalClass,
+                SensorConfidence = sensorConf,
+                VisionConfidence = visionConf,
+                FcmSent = false,
+                Message = fusionResult.Explanation,
+                TimestampUtc = DateTime.UtcNow
+            };
+            dbContext.AlertEvents.Add(alertEvent);
+            await dbContext.SaveChangesAsync();
+
+            _logger.LogWarning(
+                "🚨 [{LogTag}] [{DeviceId}] => {Class} ({Conf:P0}). Lý do: {Reason}",
+                logTag,
+                deviceId,
+                fusionResult.FinalClass,
+                fusionResult.FinalConfidence,
+                fusionResult.Explanation);
+
+            // Broadcast Cảnh báo realtime qua SignalR Hub xuống Mobile App (BE-07)
+            if (_hubService != null)
+            {
+                await _hubService.BroadcastAlertAsync(new AlertBroadcastDto
+                {
+                    AlertId = alertEvent.Id,
                     DeviceId = deviceId,
                     TriggerClass = fusionResult.FinalClass,
                     SensorConfidence = sensorConf,
-                    VisionConfidence = detection.MaxFireConfidence,
-                    FcmSent = false,
+                    VisionConfidence = visionConf,
                     Message = fusionResult.Explanation,
-                    TimestampUtc = DateTime.UtcNow
-                };
-                dbContext.AlertEvents.Add(alertEvent);
-                await dbContext.SaveChangesAsync();
-
-                _logger.LogWarning(
-                    "🚨 [CẢNH BÁO TỪ THỊ GIÁC CAMERA] [{DeviceId}] => {Class} ({Conf:P0}). Lý do: {Reason}",
-                    deviceId,
-                    fusionResult.FinalClass,
-                    fusionResult.FinalConfidence,
-                    fusionResult.Explanation);
-
-                // Broadcast Cảnh báo realtime qua SignalR Hub xuống Mobile App (BE-07)
-                if (_hubService != null)
-                {
-                    await _hubService.BroadcastAlertAsync(new AlertBroadcastDto
-                    {
-                        AlertId = alertEvent.Id,
-                        DeviceId = deviceId,
-                        TriggerClass = fusionResult.FinalClass,
-                        SensorConfidence = sensorConf,
-                        VisionConfidence = detection.MaxFireConfidence,
-                        Message = fusionResult.Explanation,
-                        TimestampUtc = alertEvent.TimestampUtc
-                    });
-                }
+                    TimestampUtc = alertEvent.TimestampUtc
+                });
             }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Lỗi khi lưu AlertEvent từ frame camera cho [{DeviceId}].", deviceId);
-            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Lỗi khi lưu/broadcast AlertEvent thị giác cho [{DeviceId}].", deviceId);
         }
     }
 
     private async Task ProcessTelemetryAsync(TelemetryPayloadDto payload)
     {
         var utcNow = DateTime.UtcNow;
+        _latestTelemetryByDevice[payload.DeviceId] = (payload, utcNow);
 
-        // 1. Thực thi suy luận AI Random Forest (ONNX) từ vector cảm biến [smoke, gas, co, temp, humidity, aqi]
+        // Lấy kết quả Vision mới nhất (trong ngưỡng tươi 15s) để ghép với cảm biến đưa vào rf_model.onnx
+        VisionPayloadDto? freshVision = null;
+        if (_latestVisionByDevice.TryGetValue(payload.DeviceId, out var visionEntry) &&
+            utcNow - visionEntry.ReceivedUtc <= VisionFreshnessWindow)
+        {
+            freshVision = visionEntry.Payload;
+        }
+
+        // 1. Thực thi suy luận AI Random Forest (ONNX) kết hợp cảm biến + thị giác
         var sensorAiResult = _rfService.Predict(
             payload.Smoke,
             payload.Gas,
             payload.Co,
             payload.Temp,
             payload.Humidity,
-            payload.Aqi);
+            payload.Aqi,
+            detected: freshVision?.Detected ?? false,
+            yoloClass: freshVision?.YoloClass ?? 0,
+            yoloConf: freshVision?.YoloConf ?? 0f,
+            bboxArea: freshVision?.BboxArea ?? 0f);
 
-        // Lấy lại confidences thị giác từ frame gần nhất (nếu có)
-        var latestReport = _telemetryStore.GetLatest();
-        double yoloFireConf = latestReport?.AiResult.YoloFireConfidence ?? 0.0;
-        double yoloSmokeConf = latestReport?.AiResult.YoloSmokeConfidence ?? 0.0;
+        // Lấy lại confidences thị giác từ pbl4/vision tươi hoặc frame gần nhất (nếu có)
+        double yoloFireConf;
+        double yoloSmokeConf;
+        if (freshVision != null)
+        {
+            yoloFireConf = freshVision.Detected && freshVision.YoloClass != 1 ? freshVision.YoloConf : 0.0;
+            yoloSmokeConf = freshVision.Detected && freshVision.YoloClass == 1 ? freshVision.YoloConf : 0.0;
+        }
+        else
+        {
+            var latestReport = _telemetryStore.GetLatest();
+            yoloFireConf = latestReport?.AiResult.YoloFireConfidence ?? 0.0;
+            yoloSmokeConf = latestReport?.AiResult.YoloSmokeConfidence ?? 0.0;
+        }
 
         // 2. Chạy Ma trận quyết định đa phương thức (Fusion Decision Matrix)
         var fusionResult = _fusionService.Evaluate(
