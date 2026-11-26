@@ -78,13 +78,15 @@ public class RandomForestServiceTests
         });
     }
 
-    private sealed class XunitLogger<T>(ITestOutputHelper output) : ILogger<T>
+    private sealed class XunitLogger<T>(ITestOutputHelper output, List<string>? capturedMessages = null) : ILogger<T>
     {
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
         public bool IsEnabled(LogLevel logLevel) => true;
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
-            output.WriteLine($"[{logLevel}] {formatter(state, exception)} {exception?.Message}");
+            var message = formatter(state, exception);
+            capturedMessages?.Add(message);
+            output.WriteLine($"[{logLevel}] {message} {exception?.Message}");
         }
     }
 
@@ -92,6 +94,7 @@ public class RandomForestServiceTests
     public async Task Predict_WithRealOnnxModel_LoadsAndRunsSixFeatureInference()
     {
         // Arrange
+        var logs = new List<string>();
         var options = Microsoft.Extensions.Options.Options.Create(new AiModelOptions
         {
             RandomForestOnnxPath = "models/rf_model.onnx",
@@ -99,7 +102,7 @@ public class RandomForestServiceTests
         });
 
         using var realService = new RandomForestOnnxService(
-            new XunitLogger<RandomForestOnnxService>(_output),
+            new XunitLogger<RandomForestOnnxService>(_output, logs),
             options);
 
         await realService.StartAsync(CancellationToken.None);
@@ -120,6 +123,7 @@ public class RandomForestServiceTests
         Assert.Equal(FireRiskClass.Safe, safeResult.RiskClass);
         Assert.Equal("ONNX-RandomForest", dangerResult.ModelSource);
         Assert.True((int)dangerResult.RiskClass >= (int)FireRiskClass.MediumRisk);
+        Assert.Contains(logs, msg => msg.StartsWith("[FUSION] Sensor(") && msg.Contains("YOLO(Detected=") && msg.Contains("=> RF_Result: Label="));
     }
 
     [Fact]

@@ -36,7 +36,7 @@ public class MqttIngestionService : BackgroundService
     private readonly IFireSafetyHubService? _hubService;
     private readonly ConcurrentDictionary<string, (VisionPayloadDto Payload, DateTime ReceivedUtc)> _latestVisionByDevice = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, (TelemetryPayloadDto Payload, DateTime ReceivedUtc)> _latestTelemetryByDevice = new(StringComparer.OrdinalIgnoreCase);
-    private static readonly TimeSpan VisionFreshnessWindow = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan VisionFreshnessWindow = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan TelemetryFreshnessWindow = TimeSpan.FromSeconds(30);
     private IMqttClient? _mqttClient;
 
@@ -526,18 +526,36 @@ public class MqttIngestionService : BackgroundService
         }
     }
 
+    private VisionPayloadDto? GetFreshVisionOrReset(string deviceId, DateTime utcNow)
+    {
+        if (!_latestVisionByDevice.TryGetValue(deviceId, out var visionEntry))
+        {
+            return null;
+        }
+
+        if (utcNow - visionEntry.ReceivedUtc > VisionFreshnessWindow)
+        {
+            // Tự động reset detected = false nếu quá 5 giây không có gói vision mới
+            var resetVision = visionEntry.Payload with
+            {
+                Detected = false,
+                YoloConf = 0f,
+                BboxArea = 0f
+            };
+            _latestVisionByDevice[deviceId] = (resetVision, visionEntry.ReceivedUtc);
+            return resetVision;
+        }
+
+        return visionEntry.Payload;
+    }
+
     private async Task ProcessTelemetryAsync(TelemetryPayloadDto payload)
     {
         var utcNow = DateTime.UtcNow;
         _latestTelemetryByDevice[payload.DeviceId] = (payload, utcNow);
 
-        // Lấy kết quả Vision mới nhất (trong ngưỡng tươi 15s) để ghép với cảm biến đưa vào rf_model.onnx
-        VisionPayloadDto? freshVision = null;
-        if (_latestVisionByDevice.TryGetValue(payload.DeviceId, out var visionEntry) &&
-            utcNow - visionEntry.ReceivedUtc <= VisionFreshnessWindow)
-        {
-            freshVision = visionEntry.Payload;
-        }
+        // Lấy kết quả Vision mới nhất (tự reset detected = false nếu quá 5s) để ghép với cảm biến đưa vào rf_model.onnx
+        var freshVision = GetFreshVisionOrReset(payload.DeviceId, utcNow);
 
         // 1. Thực thi suy luận AI Random Forest (ONNX) kết hợp cảm biến + thị giác
         var sensorAiResult = _rfService.Predict(

@@ -403,6 +403,24 @@ public class RandomForestOnnxService : IRandomForestService, IHostedService, IDi
             }
         }
 
+        // Ghi log 1 dòng tổng hợp Sensor Fusion ngay sau khi chạy rf_model.onnx (phục vụ theo dõi test & bảo vệ)
+        var fireProbability = detectedClassCount == 2
+            ? rawProbabilities[1]
+            : (rawProbabilities.Any(p => p > 0) ? rawProbabilities[Math.Clamp(rawLabel, 0, 4)] : 0.85f);
+
+        _logger.LogInformation(
+            "[FUSION] Sensor(T={Temp:F1}, H={Humidity:F1}, Gas={Gas:F1}, Smoke={Smoke:F1}, CO={Co:F1}, AQI={Aqi:F1}) | YOLO(Detected={Detected}, Conf={YoloConf:F2}) => RF_Result: Label={Label} (Prob={Prob:F2})",
+            temp,
+            humidity,
+            gas,
+            smoke,
+            co,
+            aqi,
+            detected,
+            detected ? yoloConf : 0f,
+            rawLabel,
+            fireProbability);
+
         // Quy đổi đầu ra nhị phân (2 class: 0 = An toàn, 1 = Nguy cơ cháy) sang thang 5 cấp độ của hệ thống
         if (detectedClassCount == 2)
         {
