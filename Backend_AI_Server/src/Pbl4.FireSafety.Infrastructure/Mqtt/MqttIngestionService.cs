@@ -378,8 +378,14 @@ public class MqttIngestionService : BackgroundService
     {
         var utcNow = DateTime.UtcNow;
 
-        // 1. Thực thi suy luận AI Random Forest (ONNX) từ vector cảm biến [smoke, gas, co, temp]
-        var sensorAiResult = _rfService.Predict(payload.Smoke, payload.Gas, payload.Co, payload.Temp);
+        // 1. Thực thi suy luận AI Random Forest (ONNX) từ vector cảm biến [smoke, gas, co, temp, humidity, aqi]
+        var sensorAiResult = _rfService.Predict(
+            payload.Smoke,
+            payload.Gas,
+            payload.Co,
+            payload.Temp,
+            payload.Humidity,
+            payload.Aqi);
 
         // Lấy lại confidences thị giác từ frame gần nhất (nếu có)
         var latestReport = _telemetryStore.GetLatest();
@@ -411,7 +417,7 @@ public class MqttIngestionService : BackgroundService
             Sensors = new SensorMetrics
             {
                 Temp = payload.Temp,
-                Humidity = 0.0,
+                Humidity = payload.Humidity,
                 GasMq2 = payload.Gas,
                 SmokeMq135 = payload.Smoke,
                 CoMq7 = payload.Co

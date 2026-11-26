@@ -49,17 +49,43 @@ public class RandomForestOnnxService : IRandomForestService, IHostedService, IDi
     {
         _logger = logger;
         _options = options.Value;
+        _modelAbsolutePath = ResolveModelPath(_options.RandomForestOnnxPath);
+    }
 
-        // Xác định đường dẫn tuyệt đối của file model
-        var configuredPath = _options.RandomForestOnnxPath;
+    private static string ResolveModelPath(string configuredPath)
+    {
         if (Path.IsPathRooted(configuredPath))
         {
-            _modelAbsolutePath = configuredPath;
+            return configuredPath;
         }
-        else
+
+        var baseCandidate = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, configuredPath));
+        if (File.Exists(baseCandidate))
         {
-            _modelAbsolutePath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, configuredPath));
+            return baseCandidate;
         }
+
+        var cwdCandidate = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), configuredPath));
+        if (File.Exists(cwdCandidate))
+        {
+            return cwdCandidate;
+        }
+
+        // Tìm ngược lên tối đa 7 cấp thư mục (hỗ trợ chạy trực tiếp từ src/... hoặc tests/.../bin/Debug/net10.0)
+        foreach (var root in new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() })
+        {
+            var dir = new DirectoryInfo(root);
+            for (var depth = 0; depth < 7 && dir != null; depth++, dir = dir.Parent)
+            {
+                var candidate = Path.GetFullPath(Path.Combine(dir.FullName, configuredPath));
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+        }
+
+        return baseCandidate;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -87,17 +113,24 @@ public class RandomForestOnnxService : IRandomForestService, IHostedService, IDi
     }
 
     /// <summary>
-    /// Thực hiện suy luận dự đoán nguy cơ cháy nổ từ vector [smoke, gas, co, temp].
+    /// Thực hiện suy luận dự đoán nguy cơ cháy nổ từ dữ liệu cảm biến đa biến.
+    /// Hỗ trợ tự động cả mô hình 4 đặc trưng [smoke, gas, co, temp] và 6 đặc trưng [smoke, gas, co, temp, humidity, aqi].
     /// Thread-safe hoàn toàn, không xung đột khi đang reload model.
     /// </summary>
-    public SensorInferenceResult Predict(float smoke, float gas, float co, float temp)
+    public SensorInferenceResult Predict(
+        float smoke,
+        float gas,
+        float co,
+        float temp,
+        float humidity = 60f,
+        float aqi = 0f)
     {
         _sessionLock.EnterReadLock();
         try
         {
             if (_session != null)
             {
-                return RunOnnxInference(_session, smoke, gas, co, temp);
+                return RunOnnxInference(_session, smoke, gas, co, temp, humidity, aqi);
             }
         }
         catch (Exception ex)
@@ -162,11 +195,14 @@ public class RandomForestOnnxService : IRandomForestService, IHostedService, IDi
             // Giải phóng session cũ
             oldSession?.Dispose();
 
+            var inputDesc = string.Join(", ", newSession.InputMetadata.Select(kv => $"{kv.Key}[{string.Join("x", kv.Value.Dimensions)}]"));
+            var outputDesc = string.Join(", ", newSession.OutputMetadata.Select(kv => $"{kv.Key}[{string.Join("x", kv.Value.Dimensions)}]"));
+
             _logger.LogInformation(
-                "Nạp thành công mô hình Random Forest ONNX trong {Elapsed}ms. Model Inputs: {InputsCount}, Outputs: {OutputsCount}",
+                "Nạp thành công mô hình Random Forest ONNX trong {Elapsed}ms. Inputs: {Inputs} | Outputs: {Outputs}",
                 sw.ElapsedMilliseconds,
-                newSession.InputMetadata.Count,
-                newSession.OutputMetadata.Count);
+                inputDesc,
+                outputDesc);
 
             return true;
         }
@@ -269,15 +305,21 @@ public class RandomForestOnnxService : IRandomForestService, IHostedService, IDi
         float smoke,
         float gas,
         float co,
-        float temp)
+        float temp,
+        float humidity,
+        float aqi)
     {
-        // Vector đầu vào chuẩn: [smoke, gas, co, temp]
-        var inputValues = new[] { smoke, gas, co, temp };
-        var dimensions = new[] { 1, 4 };
+        var inputMeta = session.InputMetadata.First();
+        var inputName = inputMeta.Key;
+        var expectedFeatureCount = inputMeta.Value.Dimensions.Length >= 2 && inputMeta.Value.Dimensions[1] > 0
+            ? inputMeta.Value.Dimensions[1]
+            : 4;
+
+        // Xây dựng vector đầu vào khớp với số lượng đặc trưng mà model ONNX yêu cầu (4 hoặc 6+)
+        var inputValues = BuildInputVector(expectedFeatureCount, smoke, gas, co, temp, humidity, aqi);
+        var dimensions = new[] { 1, expectedFeatureCount };
         var tensor = new DenseTensor<float>(inputValues, dimensions);
 
-        // Lấy tên input node đầu tiên từ metadata của model (thường là "float_input" hoặc "X")
-        var inputName = session.InputMetadata.Keys.First();
         var inputs = new List<NamedOnnxValue>
         {
             NamedOnnxValue.CreateFromTensor(inputName, tensor)
@@ -285,9 +327,9 @@ public class RandomForestOnnxService : IRandomForestService, IHostedService, IDi
 
         using var results = session.Run(inputs);
 
-        var predictedClass = 0;
-        var confidence = 0.0f;
-        var probabilities = new float[5];
+        var rawLabel = 0;
+        var detectedClassCount = 0;
+        var rawProbabilities = new float[5];
 
         // Duyệt các output của ONNX (thường có label và probabilities)
         foreach (var result in results)
@@ -295,20 +337,21 @@ public class RandomForestOnnxService : IRandomForestService, IHostedService, IDi
             // Trường hợp 1: Output dạng nhãn dự đoán (int64)
             if (result.Value is Tensor<long> labelTensor)
             {
-                predictedClass = (int)labelTensor.GetValue(0);
+                rawLabel = (int)labelTensor.GetValue(0);
             }
             // Trường hợp 2: Output dạng nhãn int32
             else if (result.Value is Tensor<int> labelInt32Tensor)
             {
-                predictedClass = labelInt32Tensor.GetValue(0);
+                rawLabel = labelInt32Tensor.GetValue(0);
             }
             // Trường hợp 3: Output dạng mảng xác suất DenseTensor<float>
             else if (result.Value is Tensor<float> probTensor)
             {
-                var length = Math.Min(5, (int)probTensor.Length);
+                detectedClassCount = (int)probTensor.Length;
+                var length = Math.Min(5, detectedClassCount);
                 for (var i = 0; i < length; i++)
                 {
-                    probabilities[i] = probTensor.GetValue(i);
+                    rawProbabilities[i] = probTensor.GetValue(i);
                 }
             }
             // Trường hợp 4: Output của Scikit-Learn dạng Sequence of Maps (IDictionary)
@@ -317,36 +360,101 @@ public class RandomForestOnnxService : IRandomForestService, IHostedService, IDi
                 var firstMap = mapSeq.FirstOrDefault();
                 if (firstMap != null)
                 {
+                    detectedClassCount = firstMap.Count;
                     foreach (var (k, v) in firstMap)
                     {
                         if (k >= 0 && k < 5)
                         {
-                            probabilities[k] = v;
+                            rawProbabilities[k] = v;
                         }
                     }
                 }
             }
         }
 
-        // Giới hạn class trong khoảng 0..4
-        predictedClass = Math.Clamp(predictedClass, 0, 4);
-
-        // Xác định confidence: nếu có mảng xác suất thì lấy xác suất của class được chọn
-        if (probabilities.Any(p => p > 0))
+        // Quy đổi đầu ra nhị phân (2 class: 0 = An toàn, 1 = Nguy cơ cháy) sang thang 5 cấp độ của hệ thống
+        if (detectedClassCount == 2)
         {
-            confidence = probabilities[predictedClass];
+            return MapBinaryOutputToRiskResult(rawLabel, rawProbabilities[0], rawProbabilities[1]);
         }
-        else
+
+        // Mô hình 5 class chuẩn [0..4]
+        var predictedClass = Math.Clamp(rawLabel, 0, 4);
+        var confidence = rawProbabilities.Any(p => p > 0)
+            ? rawProbabilities[predictedClass]
+            : 0.85f;
+
+        if (!rawProbabilities.Any(p => p > 0))
         {
-            confidence = 0.85f; // Mặc định nếu model chỉ trả label
-            probabilities[predictedClass] = confidence;
+            rawProbabilities[predictedClass] = confidence;
         }
 
         return new SensorInferenceResult
         {
             RiskClass = (FireRiskClass)predictedClass,
             Confidence = confidence,
-            Probabilities = probabilities,
+            Probabilities = rawProbabilities,
+            ModelSource = "ONNX-RandomForest"
+        };
+    }
+
+    private static float[] BuildInputVector(
+        int expectedFeatureCount,
+        float smoke,
+        float gas,
+        float co,
+        float temp,
+        float humidity,
+        float aqi)
+    {
+        var baseFeatures = expectedFeatureCount <= 4
+            ? new[] { smoke, gas, co, temp }
+            : new[] { smoke, gas, co, temp, humidity, aqi };
+
+        if (baseFeatures.Length == expectedFeatureCount)
+        {
+            return baseFeatures;
+        }
+
+        var vector = new float[expectedFeatureCount];
+        Array.Copy(baseFeatures, vector, Math.Min(baseFeatures.Length, expectedFeatureCount));
+        return vector;
+    }
+
+    private static SensorInferenceResult MapBinaryOutputToRiskResult(
+        int rawLabel,
+        float safeProb,
+        float fireProb)
+    {
+        var mappedClass = FireRiskClass.Safe;
+        float confidence;
+
+        if (rawLabel >= 1)
+        {
+            confidence = fireProb > 0 ? fireProb : 0.85f;
+            mappedClass = confidence >= 0.85f
+                ? FireRiskClass.FireConfirmed
+                : confidence >= 0.70f
+                    ? FireRiskClass.HighRisk
+                    : FireRiskClass.MediumRisk;
+        }
+        else
+        {
+            confidence = safeProb > 0 ? safeProb : 0.85f;
+        }
+
+        var mappedProbs = new float[5];
+        mappedProbs[0] = safeProb;
+        if (mappedClass != FireRiskClass.Safe)
+        {
+            mappedProbs[(int)mappedClass] = confidence;
+        }
+
+        return new SensorInferenceResult
+        {
+            RiskClass = mappedClass,
+            Confidence = confidence,
+            Probabilities = mappedProbs,
             ModelSource = "ONNX-RandomForest"
         };
     }

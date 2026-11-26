@@ -23,6 +23,12 @@ public record TelemetryPayloadDto
     /// <summary>Nhiệt độ môi trường (°C).</summary>
     public float Temp { get; init; }
 
+    /// <summary>Độ ẩm tương đối môi trường (%).</summary>
+    public float Humidity { get; init; }
+
+    /// <summary>Chỉ số chất lượng không khí (AQI).</summary>
+    public float Aqi { get; init; }
+
     /// <summary>Timestamp UNIX (giây) từ thiết bị Edge (dùng để phát hiện gói tin trễ).</summary>
     public long? EdgeTimestamp { get; init; }
 }

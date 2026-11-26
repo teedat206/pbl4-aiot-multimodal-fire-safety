@@ -24,4 +24,8 @@
     <ProjectReference Include="..\Pbl4.FireSafety.Infrastructure\Pbl4.FireSafety.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\..\models\*.onnx" Link="models\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
