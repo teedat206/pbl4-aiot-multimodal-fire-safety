@@ -85,6 +85,7 @@ try
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         db.Database.EnsureCreated();
+        db.EnsureSqliteSchemaUpToDate();
         Log.Information("Cơ sở dữ liệu đã sẵn sàng hoạt động!");
     }
     catch (Exception dbEx)

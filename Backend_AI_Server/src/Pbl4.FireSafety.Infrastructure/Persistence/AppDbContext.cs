@@ -59,6 +59,12 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Temperature)
                   .HasPrecision(5, 2);
 
+            entity.Property(e => e.Humidity)
+                  .HasPrecision(5, 2);
+
+            entity.Property(e => e.Aqi)
+                  .HasPrecision(8, 2);
+
             entity.Property(e => e.RiskClass)
                   .IsRequired()
                   .HasConversion<int>();
@@ -153,5 +159,68 @@ public class AppDbContext : DbContext
                   .HasMaxLength(30)
                   .HasDefaultValue("1.0.0");
         });
+    }
+
+    /// <summary>
+    /// Bổ sung các cột mới cho SQLite nếu database đã được tạo trước đó bằng EnsureCreated(),
+    /// giúp bảo toàn dữ liệu cũ mà vẫn lưu đủ 6 thông số cảm biến.
+    /// </summary>
+    public void EnsureSqliteSchemaUpToDate()
+    {
+        if (!Database.IsSqlite())
+        {
+            return;
+        }
+
+        var connection = Database.GetDbConnection();
+        var shouldClose = connection.State != System.Data.ConnectionState.Open;
+        if (shouldClose)
+        {
+            connection.Open();
+        }
+
+        try
+        {
+            var existingColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.CommandText = "PRAGMA table_info('TelemetryLogs');";
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    existingColumns.Add(reader.GetString(1));
+                }
+            }
+
+            if (existingColumns.Count == 0)
+            {
+                return;
+            }
+
+            var missingColumns = new (string Name, string Definition)[]
+            {
+                ("Humidity", "REAL NOT NULL DEFAULT 0"),
+                ("Aqi", "REAL NOT NULL DEFAULT 0")
+            };
+
+            foreach (var (name, definition) in missingColumns)
+            {
+                if (existingColumns.Contains(name))
+                {
+                    continue;
+                }
+
+                using var alterCmd = connection.CreateCommand();
+                alterCmd.CommandText = $"ALTER TABLE \"TelemetryLogs\" ADD COLUMN \"{name}\" {definition};";
+                alterCmd.ExecuteNonQuery();
+            }
+        }
+        finally
+        {
+            if (shouldClose)
+            {
+                connection.Close();
+            }
+        }
     }
 }

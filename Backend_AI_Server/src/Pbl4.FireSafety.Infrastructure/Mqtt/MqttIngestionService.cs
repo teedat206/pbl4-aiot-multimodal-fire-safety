@@ -631,6 +631,8 @@ public class MqttIngestionService : BackgroundService
                 Gas = payload.Gas,
                 Co = payload.Co,
                 Temperature = payload.Temp,
+                Humidity = payload.Humidity,
+                Aqi = payload.Aqi,
                 RiskClass = finalRiskClass,
                 TimestampUtc = utcNow
             };

@@ -25,6 +25,12 @@ public class TelemetryLog
     /// <summary>Nhiệt độ môi trường (°C), từ cảm biến DHT20.</summary>
     public float Temperature { get; set; }
 
+    /// <summary>Độ ẩm tương đối môi trường (%), từ cảm biến DHT20.</summary>
+    public float Humidity { get; set; }
+
+    /// <summary>Chỉ số chất lượng không khí (AQI), từ cảm biến MQ-135.</summary>
+    public float Aqi { get; set; }
+
     /// <summary>Kết quả phân loại cuối cùng từ Fusion Decision Matrix.</summary>
     public FireRiskClass RiskClass { get; set; }
 
